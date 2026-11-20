@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Creator Media Hub</title>
+  <style>
+    :root { --bg: #0f1117; --card: #1a1d27; --accent: #6c5ce7; --text: #f1f2f6; --muted: #a4b0be; }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 20px; max-width: 1100px; margin: auto; }
+    header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid #2f3542; }
+    nav { display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap; }
+    button { background: var(--card); color: var(--text); border: 1px solid #2f3542; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    button.active, button:hover { background: var(--accent); border-color: var(--accent); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
+    .card { background: var(--card); padding: 16px; border-radius: 12px; border: 1px solid #2f3542; cursor: pointer; transition: transform 0.15s; }
+    .card:hover { transform: translateY(-3px); border-color: var(--accent); }
+    .card h3 { font-size: 1.05rem; margin-bottom: 6px; }
+    .card p { font-size: 0.85rem; color: var(--muted); }
+    #viewer { margin-top: 24px; background: var(--card); padding: 20px; border-radius: 12px; display: none; }
+    .comic-stage { text-align: center; }
+    .comic-stage img { max-width: 100%; max-height: 75vh; border-radius: 8px; }
+    .controls { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 14px; }
+    .novel-page { background: #141720; padding: 28px; border-radius: 8px; line-height: 1.75; font-size: 1.05rem; white-space: pre-wrap; min-height: 360px; }
+    .audio-bar { position: sticky; bottom: 16px; background: #1e2230; padding: 14px 20px; border-radius: 12px; border: 1px solid var(--accent); margin-top: 30px; display: none; align-items: center; justify-content: space-between; gap: 16px; }
+    audio { width: 100%; max-width: 500px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Creator Vault</h1>
+  <span style="color: var(--muted); font-size: 0.9rem;">Comics • Novels • Music • Games</span>
+</header>
+
+<nav>
+  <button class="active" onclick="loadSection('Comics', this)">Comics</button>
+  <button onclick="loadSection('Novels', this)">Novels</button>
+  <button onclick="loadSection('Songs', this)">Songs</button>
+  <button onclick="loadSection('Games', this)">Games</button>
+</nav>
+
+<div id="catalog" class="grid"></div>
+
+<div id="viewer"></div>
+
+<div id="audioPlayerBar" class="audio-bar">
+  <div>
+    <strong id="nowPlayingTitle">Track Name</strong>
+    <div style="font-size: 0.8rem; color: var(--muted);" id="trackQueueInfo">Track 1 of 1</div>
+  </div>
+  <audio id="audioEl" controls></audio>
+</div>
+
+<script>
+  // 1. REPLACE THESE TWO VALUES WITH YOUR OWN GOOGLE CLOUD API KEY & ROOT FOLDER ID
+  const API_KEY = "YOUR_GOOGLE_CLOUD_API_KEY";
+  const ROOT_FOLDER_ID = "YOUR_PUBLIC_DRIVE_ROOT_FOLDER_ID";
+
+  let categoryFolders = {};
+  let playlist = [];
+  let currentTrackIndex = 0;
+
+  // Helper: Query Google Drive API v3
+  async function listDriveFiles(folderId, extraQuery = "") {
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed = false ${extraQuery}`);
+    const fields = encodeURIComponent("files(id, name, mimeType, description)");
+    const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&orderBy=name&key=${API_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    return data.files || [];
+  }
+
+  // Direct media stream/download URL for public Drive files
+  function getDriveMediaUrl(fileId) {
+    return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${API_KEY}`;
+  }
+
+  // Initialize: Find the 4 main subfolders inside ROOT_FOLDER_ID
+  async function init() {
+    const folders = await listDriveFiles(ROOT_FOLDER_ID, "and mimeType = 'application/vnd.google-apps.folder'");
+    folders.forEach(f => { categoryFolders[f.name] = f.id; });
+    loadSection("Comics", document.querySelector("nav button"));
+  }
+
+  async function loadSection(sectionName, btnEl) {
+    document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+    if (btnEl) btnEl.classList.add("active");
+    const viewer = document.getElementById("viewer");
+    viewer.style.display = "none";
+
+    const catalog = document.getElementById("catalog");
+    catalog.innerHTML = "<p>Loading from Drive...</p>";
+
+    const folderId = categoryFolders[sectionName];
+    if (!folderId) {
+      catalog.innerHTML = `<p>Create a subfolder named <b>${sectionName}</b> inside your root Drive folder.</p>`;
+      return;
+    }
+
+    const items = await listDriveFiles(folderId);
+    catalog.innerHTML = "";
+
+    if (sectionName === "Songs") {
+      playlist = items.filter(f => f.mimeType.startsWith("audio/"));
+      playlist.forEach((song, idx) => {
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `<h3>🎵 ${song.name.replace(/\.[^/.]+$/, "")}</h3><p>Click to play queue</p>`;
+        card.onclick = () => playTrack(idx);
+        catalog.appendChild(card);
+      });
+      return;
+    }
+
+    items.forEach(item => {
+      const card = document.createElement("div");
+      card.className = "card";
+
+      if (sectionName === "Comics") {
+        card.innerHTML = `<h3>📖 ${item.name}</h3><p>Panel-by-panel reader</p>`;
+        card.onclick = () => openComicReader(item.id, item.name);
+      } else if (sectionName === "Novels") {
+        card.innerHTML = `<h3>📚 ${item.name.replace(/\.[^/.]+$/, "")}</h3><p>Page-by-page reader</p>`;
+        card.onclick = () => openNovelReader(item.id, item.name);
+      } else if (sectionName === "Games") {
+        // Put the game's URL inside the file's "Description" field in Google Drive!
+        const gameUrl = item.description || "#";
+        card.innerHTML = `<h3>🎮 ${item.name}</h3><p>Launch Game ↗</p>`;
+        card.onclick = () => window.open(gameUrl, "_blank");
+      }
+
+      catalog.appendChild(card);
+    });
+  }
+
+  // 1. PANEL-BY-PANEL COMIC READER
+  async function openComicReader(issueFolderId, title) {
+    const panels = await listDriveFiles(issueFolderId, "and mimeType contains 'image/'");
+    if (!panels.length) return alert("No panel images found in this folder.");
+    let idx = 0;
+
+    const viewer = document.getElementById("viewer");
+    viewer.style.display = "block";
+
+    function renderPanel() {
+      viewer.innerHTML = `
+        <div class="comic-stage">
+          <h2 style="margin-bottom: 12px;">${title} — Panel ${idx + 1} of ${panels.length}</h2>
+          <img src="${getDriveMediaUrl(panels[idx].id)}" alt="Panel ${idx + 1}" />
+          <div class="controls">
+            <button id="prevPanel" ${idx === 0 ? "disabled" : ""}>← Previous Panel</button>
+            <span>${idx + 1} / ${panels.length}</span>
+            <button id="nextPanel" ${idx === panels.length - 1 ? "disabled" : ""}>Next Panel →</button>
+          </div>
+        </div>
+      `;
+      document.getElementById("prevPanel").onclick = () => { if (idx > 0) { idx--; renderPanel(); } };
+      document.getElementById("nextPanel").onclick = () => { if (idx < panels.length - 1) { idx++; renderPanel(); } };
+    }
+    renderPanel();
+  }
+
+  // 2. PAGE-BY-PAGE NOVEL READER (Splits .txt chapters into clean ~1,800-char pages)
+  async function openNovelReader(fileId, title) {
+    const res = await fetch(getDriveMediaUrl(fileId));
+    const text = await res.text();
+    const charsPerPage = 1800;
+    const pages = [];
+    for (let i = 0; i < text.length; i += charsPerPage) {
+      pages.push(text.slice(i, i + charsPerPage));
+    }
+    let pageIdx = 0;
+
+    const viewer = document.getElementById("viewer");
+    viewer.style.display = "block";
+
+    function renderPage() {
+      viewer.innerHTML = `
+        <h2 style="margin-bottom: 12px;">${title.replace(/\.[^/.]+$/, "")}</h2>
+        <div class="novel-page">${pages[pageIdx]}</div>
+        <div class="controls">
+          <button id="prevPage" ${pageIdx === 0 ? "disabled" : ""}>← Previous Page</button>
+          <span>Page ${pageIdx + 1} of ${pages.length}</span>
+          <button id="nextPage" ${pageIdx === pages.length - 1 ? "disabled" : ""}>Next Page →</button>
+        </div>
+      `;
+      document.getElementById("prevPage").onclick = () => { if (pageIdx > 0) { pageIdx--; renderPage(); } };
+      document.getElementById("nextPage").onclick = () => { if (pageIdx < pages.length - 1) { pageIdx++; renderPage(); } };
+    }
+    renderPage();
+  }
+
+  // 3. CONTINUOUS SONG QUEUE PLAYER
+  const audioEl = document.getElementById("audioEl");
+  function playTrack(index) {
+    if (!playlist.length) return;
+    currentTrackIndex = index;
+    const track = playlist[currentTrackIndex];
+    document.getElementById("audioPlayerBar").style.display = "flex";
+    document.getElementById("nowPlayingTitle").textContent = track.name.replace(/\.[^/.]+$/, "");
+    document.getElementById("trackQueueInfo").textContent = `Track ${currentTrackIndex + 1} of ${playlist.length}`;
+    audioEl.src = getDriveMediaUrl(track.id);
+    audioEl.play();
+  }
+
+  audioEl.addEventListener("ended", () => {
+    if (currentTrackIndex + 1 < playlist.length) {
+      playTrack(currentTrackIndex + 1);
+    }
+  });
+
+  init();
+</script>
+</body>
+</html>
