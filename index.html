@@ -25,7 +25,15 @@
       .social-links { justify-content: center; }
     }
 
-    nav { display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap; }
+    nav { display: flex; gap: 10px; margin: 20px 0 12px; flex-wrap: wrap; }
+    .sub-nav { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; background: #141720; padding: 10px 14px; border-radius: 10px; border: 1px solid #252a38; }
+    .lang-tabs { display: flex; gap: 8px; }
+    .lang-btn { padding: 6px 14px; font-size: 0.85rem; background: transparent; border: 1px solid #353b4d; }
+    .lang-btn.active { background: #2d3448; border-color: var(--accent); color: #fff; }
+    .breadcrumb { font-size: 0.9rem; color: var(--muted); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .breadcrumb span.crumb-link { color: var(--text); cursor: pointer; text-decoration: underline; }
+    .breadcrumb span.crumb-link:hover { color: var(--accent); }
+
     button { background: var(--card); color: var(--text); border: 1px solid #2f3542; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: 0.15s; }
     button.active, button:hover { background: var(--accent); border-color: var(--accent); }
     button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -35,6 +43,7 @@
     .thumb { width: 100%; height: 220px; object-fit: cover; background: #141720; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #3d4455; }
     .card-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; justify-content: space-between; }
     .card h3 { font-size: 1.05rem; }
+    .card-sub { font-size: 0.82rem; color: var(--muted); }
     .card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .card-actions button { flex: 1; padding: 8px 10px; font-size: 0.85rem; }
     .btn-secondary { background: #252a38; }
@@ -65,18 +74,26 @@
     </p>
     <div class="social-links">
       <a class="social-btn yt" href="https://www.youtube.com/@nishashastry" target="_blank" rel="noopener">▶ YouTube Channel</a>
-      <a class="social-btn ig" href="https://www.instagram.com/imnish1992/" target="_blank" rel="noopener">📷 Instagram</a>
+      <a class="social-btn ig" href="https://www.instagram.com/nishashastry" target="_blank" rel="noopener">📷 Instagram</a>
       <a class="social-btn" href="https://www.nishashastry.in" target="_blank" rel="noopener">🌐 Official Website</a>
     </div>
   </div>
 </section>
 
 <nav>
-  <button class="active" onclick="loadSection('Comics', this)">Comics</button>
-  <button onclick="loadSection('Novels', this)">Novels</button>
-  <button onclick="loadSection('Songs', this)">Songs & Audio</button>
-  <button onclick="loadSection('Games', this)">Games</button>
+  <button class="active" onclick="selectCategory('Comics', this)">Comics</button>
+  <button onclick="selectCategory('Novels', this)">Novels</button>
+  <button onclick="selectCategory('Songs', this)">Songs & Audio</button>
+  <button onclick="selectCategory('Games', this)">Games</button>
 </nav>
+
+<div id="subNavBar" class="sub-nav">
+  <div class="lang-tabs" id="langTabs">
+    <button class="lang-btn active" onclick="selectLanguage('English', this)">English</button>
+    <button class="lang-btn" onclick="selectLanguage('Hindi', this)">हिन्दी (Hindi)</button>
+  </div>
+  <div class="breadcrumb" id="breadcrumb"></div>
+</div>
 
 <div id="catalog" class="grid"></div>
 <div id="viewer"></div>
@@ -94,6 +111,9 @@
   const ROOT_FOLDER_ID = "1c4m5pzS7DdDDrFOYRMGF7epodlPGvkJA";
 
   let categoryFolders = {};
+  let currentCategory = "Comics";
+  let currentLanguage = "English";
+  let folderStack = []; // Tracks nested series folders: [{id, name}, ...]
   let playlist = [];
   let currentTrackIndex = 0;
   let activeKeyHandler = null;
@@ -134,59 +154,180 @@
   async function init() {
     const folders = await listDriveFiles(ROOT_FOLDER_ID, "and mimeType = 'application/vnd.google-apps.folder'");
     folders.forEach(f => { categoryFolders[f.name] = f.id; });
-    loadSection("Comics", document.querySelector("nav button"));
+    renderCurrentView();
   }
 
-  async function loadSection(sectionName, btnEl) {
+  function selectCategory(catName, btnEl) {
+    currentCategory = catName;
+    folderStack = [];
     document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
     if (btnEl) btnEl.classList.add("active");
-    closeViewer();
+    document.getElementById("subNavBar").style.display = (catName === "Games") ? "none" : "flex";
+    renderCurrentView();
+  }
 
+  function selectLanguage(langName, btnEl) {
+    currentLanguage = langName;
+    folderStack = [];
+    document.querySelectorAll(".lang-btn").forEach(b => b.classList.remove("active"));
+    if (btnEl) btnEl.classList.add("active");
+    renderCurrentView();
+  }
+
+  function updateBreadcrumb() {
+    const bc = document.getElementById("breadcrumb");
+    if (currentCategory === "Games") { bc.innerHTML = ""; return; }
+    let html = `<span class="crumb-link" onclick="jumpToStack(-1)">${currentCategory} (${currentLanguage})</span>`;
+    folderStack.forEach((f, idx) => {
+      html += ` <span>›</span> <span class="crumb-link" onclick="jumpToStack(${idx})">${f.name}</span>`;
+    });
+    bc.innerHTML = html;
+  }
+
+  function jumpToStack(index) {
+    folderStack = (index < 0) ? [] : folderStack.slice(0, index + 1);
+    renderCurrentView();
+  }
+
+  // Finds a cover thumbnail for any folder (looks for cover.jpg/png or first image in folder/first child folder)
+  async function resolveFolderCover(folderId, preloadedFiles = null) {
+    const files = preloadedFiles || await listDriveFiles(folderId);
+    const images = files.filter(f => f.mimeType.startsWith("image/"));
+    if (images.length) {
+      const explicitCover = images.find(img => stripExt(img.name).toLowerCase() === "cover");
+      return getDriveMediaUrl((explicitCover || images[0]).id);
+    }
+    const subfolders = files.filter(f => f.mimeType === "application/vnd.google-apps.folder");
+    if (subfolders.length) {
+      const subFiles = await listDriveFiles(subfolders[0].id, "and mimeType contains 'image/'");
+      if (subFiles.length) return getDriveMediaUrl(subFiles[0].id);
+    }
+    return null;
+  }
+
+  async function renderCurrentView() {
+    closeViewer();
+    updateBreadcrumb();
     const catalog = document.getElementById("catalog");
     catalog.innerHTML = "<p>Loading from Drive...</p>";
 
-    const folderId = categoryFolders[sectionName];
-    if (!folderId) {
-      catalog.innerHTML = `<p>Create a subfolder named <b>${sectionName}</b> inside your root Drive folder.</p>`;
+    const catFolderId = categoryFolders[currentCategory];
+    if (!catFolderId) {
+      catalog.innerHTML = `<p>Create a folder named <b>${currentCategory}</b> in your root Drive folder.</p>`;
       return;
     }
 
-    const items = await listDriveFiles(folderId);
+    // Games don't need English/Hindi split
+    if (currentCategory === "Games") {
+      const items = await listDriveFiles(catFolderId);
+      catalog.innerHTML = "";
+      items.filter(f => f.mimeType.startsWith("image/")).forEach(game => {
+        const base = stripExt(game.name);
+        const gameUrl = game.description || "#";
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          <img class="thumb" src="${getDriveMediaUrl(game.id)}" alt="${base}" />
+          <div class="card-body">
+            <h3>${base}</h3>
+            <div class="card-actions"><button>Play Game ↗</button></div>
+          </div>
+        `;
+        card.querySelector("button").onclick = () => window.open(gameUrl, "_blank");
+        catalog.appendChild(card);
+      });
+      return;
+    }
+
+    // Resolve target folder: either top of language (e.g. Comics -> English) or deeper series folder (e.g. Monark)
+    let targetFolderId;
+    if (folderStack.length > 0) {
+      targetFolderId = folderStack[folderStack.length - 1].id;
+    } else {
+      const langFolders = await listDriveFiles(catFolderId, "and mimeType = 'application/vnd.google-apps.folder'");
+      const matchedLang = langFolders.find(f => f.name.toLowerCase() === currentLanguage.toLowerCase());
+      if (!matchedLang) {
+        catalog.innerHTML = `<p>Create a subfolder named <b>${currentLanguage}</b> inside <b>${currentCategory}</b> in Google Drive.</p>`;
+        return;
+      }
+      targetFolderId = matchedLang.id;
+    }
+
+    const items = await listDriveFiles(targetFolderId);
     catalog.innerHTML = "";
+
+    if (!items.length) {
+      catalog.innerHTML = `<p>No items uploaded in this folder yet.</p>`;
+      return;
+    }
 
     const imageMap = {};
     items.filter(f => f.mimeType.startsWith("image/")).forEach(img => {
       imageMap[stripExt(img.name).toLowerCase()] = getDriveMediaUrl(img.id);
     });
 
-    if (sectionName === "Comics") {
-      const issueFolders = items.filter(f => f.mimeType === "application/vnd.google-apps.folder");
-      for (const issue of issueFolders) {
-        const issueFiles = await listDriveFiles(issue.id);
-        const panels = issueFiles.filter(f => f.mimeType.startsWith("image/"));
-        const pdfFile = issueFiles.find(f => f.mimeType === "application/pdf");
-        const thumbUrl = panels.length ? getDriveMediaUrl(panels[0].id) : null;
+    const subfolders = items.filter(f => f.mimeType === "application/vnd.google-apps.folder");
 
-        const card = document.createElement("div");
-        card.className = "card";
+    // Render any subfolders (either Series like "Monark" or Issue folders like "Issue 1")
+    for (const sub of subfolders) {
+      const subFiles = await listDriveFiles(sub.id);
+      const childFolders = subFiles.filter(f => f.mimeType === "application/vnd.google-apps.folder");
+      const panels = subFiles.filter(f => f.mimeType.startsWith("image/") && stripExt(f.name).toLowerCase() !== "cover");
+      const pdfFile = subFiles.find(f => f.mimeType === "application/pdf");
+      const thumbUrl = await resolveFolderCover(sub.id, subFiles);
+
+      const card = document.createElement("div");
+      card.className = "card";
+
+      // If this folder contains further subfolders (e.g., "Monark" -> "Issue 1", "Issue 2"), make it a Series folder
+      if (childFolders.length > 0 && currentCategory === "Comics") {
         card.innerHTML = `
-          ${thumbUrl ? `<img class="thumb" src="${thumbUrl}" alt="${issue.name}" />` : `<div class="thumb">📖</div>`}
+          ${thumbUrl ? `<img class="thumb" src="${thumbUrl}" alt="${sub.name}" />` : `<div class="thumb">📚</div>`}
           <div class="card-body">
-            <h3>${issue.name}</h3>
+            <div>
+              <h3>${sub.name}</h3>
+              <div class="card-sub">${childFolders.length} Issue${childFolders.length > 1 ? "s" : ""}</div>
+            </div>
+            <div class="card-actions"><button>Open Series →</button></div>
+          </div>
+        `;
+        card.querySelector("button").onclick = () => {
+          folderStack.push({ id: sub.id, name: sub.name });
+          renderCurrentView();
+        };
+      } else if (currentCategory === "Comics") {
+        // Leaf Comic Issue folder (contains panel images and/or PDF)
+        card.innerHTML = `
+          ${thumbUrl ? `<img class="thumb" src="${thumbUrl}" alt="${sub.name}" />` : `<div class="thumb">📖</div>`}
+          <div class="card-body">
+            <h3>${sub.name}</h3>
             <div class="card-actions">
               ${panels.length ? `<button class="panel-btn">Panel Mode (${panels.length})</button>` : ""}
               ${pdfFile ? `<button class="btn-secondary pdf-btn">Read PDF</button>` : ""}
             </div>
           </div>
         `;
-        if (panels.length) card.querySelector(".panel-btn").onclick = () => openComicPanelReader(panels, issue.name, pdfFile);
-        if (pdfFile) card.querySelector(".pdf-btn").onclick = () => openPdfReader(pdfFile.id, issue.name, panels);
-        catalog.appendChild(card);
+        if (panels.length) card.querySelector(".panel-btn").onclick = () => openComicPanelReader(panels, sub.name, pdfFile);
+        if (pdfFile) card.querySelector(".pdf-btn").onclick = () => openPdfReader(pdfFile.id, sub.name, panels);
+      } else {
+        // Series/Album subfolder inside Novels or Songs
+        card.innerHTML = `
+          ${thumbUrl ? `<img class="thumb" src="${thumbUrl}" alt="${sub.name}" />` : `<div class="thumb">📁</div>`}
+          <div class="card-body">
+            <h3>${sub.name}</h3>
+            <div class="card-actions"><button>Open Folder →</button></div>
+          </div>
+        `;
+        card.querySelector("button").onclick = () => {
+          folderStack.push({ id: sub.id, name: sub.name });
+          renderCurrentView();
+        };
       }
-      return;
+      catalog.appendChild(card);
     }
 
-    if (sectionName === "Novels") {
+    // Render direct files inside Novels (PDF / TXT)
+    if (currentCategory === "Novels") {
       const docs = items.filter(f => f.mimeType === "application/pdf" || f.mimeType === "text/plain");
       docs.forEach(doc => {
         const base = stripExt(doc.name);
@@ -197,9 +338,7 @@
           ${thumbUrl ? `<img class="thumb" src="${thumbUrl}" alt="${base}" />` : `<div class="thumb">📚</div>`}
           <div class="card-body">
             <h3>${base}</h3>
-            <div class="card-actions">
-              <button>Read ${doc.mimeType === "application/pdf" ? "PDF" : "Book"}</button>
-            </div>
+            <div class="card-actions"><button>Read ${doc.mimeType === "application/pdf" ? "PDF" : "Book"}</button></div>
           </div>
         `;
         card.querySelector("button").onclick = () => {
@@ -207,10 +346,10 @@
         };
         catalog.appendChild(card);
       });
-      return;
     }
 
-    if (sectionName === "Songs") {
+    // Render direct audio tracks inside Songs (MP3 / WAV)
+    if (currentCategory === "Songs") {
       playlist = items.filter(f => f.mimeType.startsWith("audio/"));
       playlist.forEach((song, idx) => {
         const base = stripExt(song.name);
@@ -221,34 +360,10 @@
           ${thumbUrl ? `<img class="thumb" src="${thumbUrl}" alt="${base}" />` : `<div class="thumb">🎵</div>`}
           <div class="card-body">
             <h3>${base}</h3>
-            <div class="card-actions">
-              <button>▶ Play Track</button>
-            </div>
+            <div class="card-actions"><button>▶ Play Track</button></div>
           </div>
         `;
         card.querySelector("button").onclick = () => playTrack(idx);
-        catalog.appendChild(card);
-      });
-      return;
-    }
-
-    if (sectionName === "Games") {
-      const gameThumbs = items.filter(f => f.mimeType.startsWith("image/"));
-      gameThumbs.forEach(game => {
-        const base = stripExt(game.name);
-        const gameUrl = game.description || "#";
-        const card = document.createElement("div");
-        card.className = "card";
-        card.innerHTML = `
-          <img class="thumb" src="${getDriveMediaUrl(game.id)}" alt="${base}" />
-          <div class="card-body">
-            <h3>${base}</h3>
-            <div class="card-actions">
-              <button>Play Game ↗</button>
-            </div>
-          </div>
-        `;
-        card.querySelector("button").onclick = () => window.open(gameUrl, "_blank");
         catalog.appendChild(card);
       });
     }
