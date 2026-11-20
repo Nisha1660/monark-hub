@@ -3,12 +3,28 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Monark Hub — Creator Vault</title>
+  <title>Nisha Audiostories</title>
   <style>
     :root { --bg: #0f1117; --card: #1a1d27; --accent: #6c5ce7; --accent-hover: #5849c4; --text: #f1f2f6; --muted: #a4b0be; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
     body { background: var(--bg); color: var(--text); padding: 20px; max-width: 1150px; margin: auto; }
-    header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid #2f3542; }
+    header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid #2f3542; flex-wrap: wrap; gap: 10px; }
+    
+    /* Author Hero Banner */
+    .author-hero { display: flex; align-items: center; gap: 24px; background: var(--card); border: 1px solid #2f3542; border-radius: 16px; padding: 24px; margin: 22px 0; }
+    .author-photo { width: 130px; height: 130px; border-radius: 50%; object-fit: cover; border: 3px solid var(--accent); flex-shrink: 0; background: #141720; }
+    .author-info h2 { font-size: 1.45rem; margin-bottom: 8px; }
+    .author-info p { color: var(--muted); line-height: 1.65; font-size: 0.96rem; margin-bottom: 14px; }
+    .social-links { display: flex; gap: 10px; flex-wrap: wrap; }
+    .social-btn { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; color: var(--text); background: #252a38; border: 1px solid #353b4d; padding: 8px 16px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; transition: 0.15s; }
+    .social-btn:hover { background: var(--accent); border-color: var(--accent); }
+    .social-btn.yt:hover { background: #e62117; border-color: #e62117; }
+    .social-btn.ig:hover { background: #c13584; border-color: #c13584; }
+    @media (max-width: 640px) {
+      .author-hero { flex-direction: column; text-align: center; }
+      .social-links { justify-content: center; }
+    }
+
     nav { display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap; }
     button { background: var(--card); color: var(--text); border: 1px solid #2f3542; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: 0.15s; }
     button.active, button:hover { background: var(--accent); border-color: var(--accent); }
@@ -36,14 +52,29 @@
 <body>
 
 <header>
-  <h1>Monark Hub</h1>
-  <span style="color: var(--muted); font-size: 0.9rem;">Comics • Novels • Music • Games</span>
+  <h1>Nisha Audiostories</h1>
+  <span style="color: var(--muted); font-size: 0.9rem;">Comics • Novels • Audio Stories • Games</span>
 </header>
+
+<section class="author-hero">
+  <img class="author-photo" src="nisha-shastry.jpg" alt="Dr. Nisha Shastry" onerror="this.style.display='none'" />
+  <div class="author-info">
+    <h2>Dr. Nisha Shastry</h2>
+    <p>
+      Welcome to the official digital hub of <strong>Dr. Nisha Shastry</strong> — author of acclaimed Hindi and English novels, graphic literature, and immersive audio stories, including <em>Poison Girl</em>, <em>Keyur Ka Kahar</em>, <em>Rahasyamayi Khel</em>, and <em>The Intern</em>. Explore serialized comics, full-length novels, narrated audiostories, and interactive games below.
+    </p>
+    <div class="social-links">
+      <a class="social-btn yt" href="https://www.youtube.com/@nishashastry" target="_blank" rel="noopener">▶ YouTube Channel</a>
+      <a class="social-btn ig" href="https://www.instagram.com/nishashastry" target="_blank" rel="noopener">📷 Instagram</a>
+      <a class="social-btn" href="https://www.nishashastry.in" target="_blank" rel="noopener">🌐 Official Website</a>
+    </div>
+  </div>
+</section>
 
 <nav>
   <button class="active" onclick="loadSection('Comics', this)">Comics</button>
   <button onclick="loadSection('Novels', this)">Novels</button>
-  <button onclick="loadSection('Songs', this)">Songs</button>
+  <button onclick="loadSection('Songs', this)">Songs & Audio</button>
   <button onclick="loadSection('Games', this)">Games</button>
 </nav>
 
@@ -59,7 +90,6 @@
 </div>
 
 <script>
-  // PASTE YOUR API KEY AND ROOT FOLDER ID INSIDE THE QUOTES BELOW
   const API_KEY = "AIzaSyAssjFNUgHAq9H5gM44F33rntIvsat5ziw";
   const ROOT_FOLDER_ID = "1c4m5pzS7DdDDrFOYRMGF7epodlPGvkJA";
 
@@ -124,7 +154,6 @@
     const items = await listDriveFiles(folderId);
     catalog.innerHTML = "";
 
-    // Map matching cover images (same base filename) for Novels & Songs
     const imageMap = {};
     items.filter(f => f.mimeType.startsWith("image/")).forEach(img => {
       imageMap[stripExt(img.name).toLowerCase()] = getDriveMediaUrl(img.id);
@@ -225,7 +254,6 @@
     }
   }
 
-  // PANEL-BY-PANEL COMIC READER (Supports Left/Right Arrow Keys)
   function openComicPanelReader(panels, title, pdfFile = null) {
     closeViewer();
     let idx = 0;
@@ -266,7 +294,6 @@
     renderPanel();
   }
 
-  // EMBEDDED PDF READER (For Comics PDFs & Novel PDFs)
   function openPdfReader(fileId, title, panels = []) {
     closeViewer();
     const viewer = document.getElementById("viewer");
@@ -289,7 +316,6 @@
     }
   }
 
-  // TEXT NOVEL READER (.txt)
   async function openNovelTextReader(fileId, title) {
     closeViewer();
     const res = await fetch(getDriveMediaUrl(fileId));
@@ -323,7 +349,6 @@
     renderPage();
   }
 
-  // CONTINUOUS SONG QUEUE PLAYER
   const audioEl = document.getElementById("audioEl");
   function playTrack(index) {
     if (!playlist.length) return;
