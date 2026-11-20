@@ -3,23 +3,30 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Creator Media Hub</title>
+  <title>Monark Hub — Creator Vault</title>
   <style>
-    :root { --bg: #0f1117; --card: #1a1d27; --accent: #6c5ce7; --text: #f1f2f6; --muted: #a4b0be; }
+    :root { --bg: #0f1117; --card: #1a1d27; --accent: #6c5ce7; --accent-hover: #5849c4; --text: #f1f2f6; --muted: #a4b0be; }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: system-ui, -apple-system, sans-serif; }
-    body { background: var(--bg); color: var(--text); padding: 20px; max-width: 1100px; margin: auto; }
+    body { background: var(--bg); color: var(--text); padding: 20px; max-width: 1150px; margin: auto; }
     header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 20px; border-bottom: 1px solid #2f3542; }
     nav { display: flex; gap: 10px; margin: 20px 0; flex-wrap: wrap; }
-    button { background: var(--card); color: var(--text); border: 1px solid #2f3542; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; }
+    button { background: var(--card); color: var(--text); border: 1px solid #2f3542; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 600; transition: 0.15s; }
     button.active, button:hover { background: var(--accent); border-color: var(--accent); }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; }
-    .card { background: var(--card); padding: 16px; border-radius: 12px; border: 1px solid #2f3542; cursor: pointer; transition: transform 0.15s; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
+    .card { background: var(--card); border-radius: 12px; border: 1px solid #2f3542; overflow: hidden; display: flex; flex-direction: column; transition: transform 0.15s, border-color 0.15s; }
     .card:hover { transform: translateY(-3px); border-color: var(--accent); }
-    .card h3 { font-size: 1.05rem; margin-bottom: 6px; }
-    .card p { font-size: 0.85rem; color: var(--muted); }
-    #viewer { margin-top: 24px; background: var(--card); padding: 20px; border-radius: 12px; display: none; }
+    .thumb { width: 100%; height: 220px; object-fit: cover; background: #141720; display: flex; align-items: center; justify-content: center; font-size: 3rem; color: #3d4455; }
+    .card-body { padding: 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; justify-content: space-between; }
+    .card h3 { font-size: 1.05rem; }
+    .card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .card-actions button { flex: 1; padding: 8px 10px; font-size: 0.85rem; }
+    .btn-secondary { background: #252a38; }
+    #viewer { margin-top: 24px; background: var(--card); padding: 20px; border-radius: 12px; display: none; border: 1px solid #2f3542; }
+    .viewer-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 10px; }
     .comic-stage { text-align: center; }
-    .comic-stage img { max-width: 100%; max-height: 75vh; border-radius: 8px; }
+    .comic-stage img { max-width: 100%; max-height: 78vh; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); }
+    .pdf-frame { width: 100%; height: 80vh; border: none; border-radius: 8px; background: #fff; }
     .controls { display: flex; justify-content: center; align-items: center; gap: 16px; margin-top: 14px; }
     .novel-page { background: #141720; padding: 28px; border-radius: 8px; line-height: 1.75; font-size: 1.05rem; white-space: pre-wrap; min-height: 360px; }
     .audio-bar { position: sticky; bottom: 16px; background: #1e2230; padding: 14px 20px; border-radius: 12px; border: 1px solid var(--accent); margin-top: 30px; display: none; align-items: center; justify-content: space-between; gap: 16px; }
@@ -29,7 +36,7 @@
 <body>
 
 <header>
-  <h1>Creator Vault</h1>
+  <h1>Monark Hub</h1>
   <span style="color: var(--muted); font-size: 0.9rem;">Comics • Novels • Music • Games</span>
 </header>
 
@@ -41,7 +48,6 @@
 </nav>
 
 <div id="catalog" class="grid"></div>
-
 <div id="viewer"></div>
 
 <div id="audioPlayerBar" class="audio-bar">
@@ -53,30 +59,48 @@
 </div>
 
 <script>
-  // 1. REPLACE THESE TWO VALUES WITH YOUR OWN GOOGLE CLOUD API KEY & ROOT FOLDER ID
+  // PASTE YOUR API KEY AND ROOT FOLDER ID INSIDE THE QUOTES BELOW
   const API_KEY = "AIzaSyAssjFNUgHAq9H5gM44F33rntIvsat5ziw";
   const ROOT_FOLDER_ID = "1c4m5pzS7DdDDrFOYRMGF7epodlPGvkJA";
 
   let categoryFolders = {};
   let playlist = [];
   let currentTrackIndex = 0;
+  let activeKeyHandler = null;
 
-  // Helper: Query Google Drive API v3
   async function listDriveFiles(folderId, extraQuery = "") {
     const q = encodeURIComponent(`'${folderId}' in parents and trashed = false ${extraQuery}`);
     const fields = encodeURIComponent("files(id, name, mimeType, description)");
     const url = `https://www.googleapis.com/drive/v3/files?q=${q}&fields=${fields}&orderBy=name&key=${API_KEY}`;
     const res = await fetch(url);
     const data = await res.json();
+    if (data.error) {
+      document.getElementById("catalog").innerHTML = `<p style="color:#ff6b6b;">Drive Error: ${data.error.message}</p>`;
+      return [];
+    }
     return data.files || [];
   }
 
-  // Direct media stream/download URL for public Drive files
   function getDriveMediaUrl(fileId) {
     return `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&key=${API_KEY}`;
   }
 
-  // Initialize: Find the 4 main subfolders inside ROOT_FOLDER_ID
+  function getDrivePdfPreviewUrl(fileId) {
+    return `https://drive.google.com/file/d/${fileId}/preview`;
+  }
+
+  function stripExt(filename) {
+    return filename.replace(/\.[^/.]+$/, "");
+  }
+
+  function closeViewer() {
+    document.getElementById("viewer").style.display = "none";
+    if (activeKeyHandler) {
+      document.removeEventListener("keydown", activeKeyHandler);
+      activeKeyHandler = null;
+    }
+  }
+
   async function init() {
     const folders = await listDriveFiles(ROOT_FOLDER_ID, "and mimeType = 'application/vnd.google-apps.folder'");
     folders.forEach(f => { categoryFolders[f.name] = f.id; });
@@ -86,8 +110,7 @@
   async function loadSection(sectionName, btnEl) {
     document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
     if (btnEl) btnEl.classList.add("active");
-    const viewer = document.getElementById("viewer");
-    viewer.style.display = "none";
+    closeViewer();
 
     const catalog = document.getElementById("catalog");
     catalog.innerHTML = "<p>Loading from Drive...</p>";
@@ -101,52 +124,125 @@
     const items = await listDriveFiles(folderId);
     catalog.innerHTML = "";
 
-    if (sectionName === "Songs") {
-      playlist = items.filter(f => f.mimeType.startsWith("audio/"));
-      playlist.forEach((song, idx) => {
+    // Map matching cover images (same base filename) for Novels & Songs
+    const imageMap = {};
+    items.filter(f => f.mimeType.startsWith("image/")).forEach(img => {
+      imageMap[stripExt(img.name).toLowerCase()] = getDriveMediaUrl(img.id);
+    });
+
+    if (sectionName === "Comics") {
+      const issueFolders = items.filter(f => f.mimeType === "application/vnd.google-apps.folder");
+      for (const issue of issueFolders) {
+        const issueFiles = await listDriveFiles(issue.id);
+        const panels = issueFiles.filter(f => f.mimeType.startsWith("image/"));
+        const pdfFile = issueFiles.find(f => f.mimeType === "application/pdf");
+        const thumbUrl = panels.length ? getDriveMediaUrl(panels[0].id) : null;
+
         const card = document.createElement("div");
         card.className = "card";
-        card.innerHTML = `<h3>🎵 ${song.name.replace(/\.[^/.]+$/, "")}</h3><p>Click to play queue</p>`;
-        card.onclick = () => playTrack(idx);
+        card.innerHTML = `
+          ${thumbUrl ? `<img class="thumb" src="${thumbUrl}" alt="${issue.name}" />` : `<div class="thumb">📖</div>`}
+          <div class="card-body">
+            <h3>${issue.name}</h3>
+            <div class="card-actions">
+              ${panels.length ? `<button class="panel-btn">Panel Mode (${panels.length})</button>` : ""}
+              ${pdfFile ? `<button class="btn-secondary pdf-btn">Read PDF</button>` : ""}
+            </div>
+          </div>
+        `;
+        if (panels.length) card.querySelector(".panel-btn").onclick = () => openComicPanelReader(panels, issue.name, pdfFile);
+        if (pdfFile) card.querySelector(".pdf-btn").onclick = () => openPdfReader(pdfFile.id, issue.name, panels);
+        catalog.appendChild(card);
+      }
+      return;
+    }
+
+    if (sectionName === "Novels") {
+      const docs = items.filter(f => f.mimeType === "application/pdf" || f.mimeType === "text/plain");
+      docs.forEach(doc => {
+        const base = stripExt(doc.name);
+        const thumbUrl = imageMap[base.toLowerCase()];
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          ${thumbUrl ? `<img class="thumb" src="${thumbUrl}" alt="${base}" />` : `<div class="thumb">📚</div>`}
+          <div class="card-body">
+            <h3>${base}</h3>
+            <div class="card-actions">
+              <button>Read ${doc.mimeType === "application/pdf" ? "PDF" : "Book"}</button>
+            </div>
+          </div>
+        `;
+        card.querySelector("button").onclick = () => {
+          doc.mimeType === "application/pdf" ? openPdfReader(doc.id, base) : openNovelTextReader(doc.id, base);
+        };
         catalog.appendChild(card);
       });
       return;
     }
 
-    items.forEach(item => {
-      const card = document.createElement("div");
-      card.className = "card";
+    if (sectionName === "Songs") {
+      playlist = items.filter(f => f.mimeType.startsWith("audio/"));
+      playlist.forEach((song, idx) => {
+        const base = stripExt(song.name);
+        const thumbUrl = imageMap[base.toLowerCase()];
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          ${thumbUrl ? `<img class="thumb" src="${thumbUrl}" alt="${base}" />` : `<div class="thumb">🎵</div>`}
+          <div class="card-body">
+            <h3>${base}</h3>
+            <div class="card-actions">
+              <button>▶ Play Track</button>
+            </div>
+          </div>
+        `;
+        card.querySelector("button").onclick = () => playTrack(idx);
+        catalog.appendChild(card);
+      });
+      return;
+    }
 
-      if (sectionName === "Comics") {
-        card.innerHTML = `<h3>📖 ${item.name}</h3><p>Panel-by-panel reader</p>`;
-        card.onclick = () => openComicReader(item.id, item.name);
-      } else if (sectionName === "Novels") {
-        card.innerHTML = `<h3>📚 ${item.name.replace(/\.[^/.]+$/, "")}</h3><p>Page-by-page reader</p>`;
-        card.onclick = () => openNovelReader(item.id, item.name);
-      } else if (sectionName === "Games") {
-        // Put the game's URL inside the file's "Description" field in Google Drive!
-        const gameUrl = item.description || "#";
-        card.innerHTML = `<h3>🎮 ${item.name}</h3><p>Launch Game ↗</p>`;
-        card.onclick = () => window.open(gameUrl, "_blank");
-      }
-
-      catalog.appendChild(card);
-    });
+    if (sectionName === "Games") {
+      const gameThumbs = items.filter(f => f.mimeType.startsWith("image/"));
+      gameThumbs.forEach(game => {
+        const base = stripExt(game.name);
+        const gameUrl = game.description || "#";
+        const card = document.createElement("div");
+        card.className = "card";
+        card.innerHTML = `
+          <img class="thumb" src="${getDriveMediaUrl(game.id)}" alt="${base}" />
+          <div class="card-body">
+            <h3>${base}</h3>
+            <div class="card-actions">
+              <button>Play Game ↗</button>
+            </div>
+          </div>
+        `;
+        card.querySelector("button").onclick = () => window.open(gameUrl, "_blank");
+        catalog.appendChild(card);
+      });
+    }
   }
 
-  // 1. PANEL-BY-PANEL COMIC READER
-  async function openComicReader(issueFolderId, title) {
-    const panels = await listDriveFiles(issueFolderId, "and mimeType contains 'image/'");
-    if (!panels.length) return alert("No panel images found in this folder.");
+  // PANEL-BY-PANEL COMIC READER (Supports Left/Right Arrow Keys)
+  function openComicPanelReader(panels, title, pdfFile = null) {
+    closeViewer();
     let idx = 0;
-
     const viewer = document.getElementById("viewer");
     viewer.style.display = "block";
+    viewer.scrollIntoView({ behavior: "smooth" });
 
     function renderPanel() {
       viewer.innerHTML = `
+        <div class="viewer-header">
+          <h2>${title} — Panel ${idx + 1} of ${panels.length}</h2>
+          <div style="display:flex; gap:8px;">
+            ${pdfFile ? `<button class="btn-secondary" id="switchToPdf">Switch to PDF</button>` : ""}
+            <button class="btn-secondary" onclick="closeViewer()">✕ Close</button>
+          </div>
+        </div>
         <div class="comic-stage">
-          <h2 style="margin-bottom: 12px;">${title} — Panel ${idx + 1} of ${panels.length}</h2>
           <img src="${getDriveMediaUrl(panels[idx].id)}" alt="Panel ${idx + 1}" />
           <div class="controls">
             <button id="prevPanel" ${idx === 0 ? "disabled" : ""}>← Previous Panel</button>
@@ -157,12 +253,45 @@
       `;
       document.getElementById("prevPanel").onclick = () => { if (idx > 0) { idx--; renderPanel(); } };
       document.getElementById("nextPanel").onclick = () => { if (idx < panels.length - 1) { idx++; renderPanel(); } };
+      if (pdfFile) {
+        document.getElementById("switchToPdf").onclick = () => openPdfReader(pdfFile.id, title, panels);
+      }
     }
+
+    activeKeyHandler = (e) => {
+      if (e.key === "ArrowLeft" && idx > 0) { idx--; renderPanel(); }
+      if (e.key === "ArrowRight" && idx < panels.length - 1) { idx++; renderPanel(); }
+    };
+    document.addEventListener("keydown", activeKeyHandler);
     renderPanel();
   }
 
-  // 2. PAGE-BY-PAGE NOVEL READER (Splits .txt chapters into clean ~1,800-char pages)
-  async function openNovelReader(fileId, title) {
+  // EMBEDDED PDF READER (For Comics PDFs & Novel PDFs)
+  function openPdfReader(fileId, title, panels = []) {
+    closeViewer();
+    const viewer = document.getElementById("viewer");
+    viewer.style.display = "block";
+    viewer.scrollIntoView({ behavior: "smooth" });
+
+    viewer.innerHTML = `
+      <div class="viewer-header">
+        <h2>${title} (PDF)</h2>
+        <div style="display:flex; gap:8px;">
+          ${panels.length ? `<button class="btn-secondary" id="switchToPanels">Switch to Panel Mode</button>` : ""}
+          <button class="btn-secondary" onclick="closeViewer()">✕ Close</button>
+        </div>
+      </div>
+      <iframe class="pdf-frame" src="${getDrivePdfPreviewUrl(fileId)}" allow="autoplay"></iframe>
+    `;
+
+    if (panels.length) {
+      document.getElementById("switchToPanels").onclick = () => openComicPanelReader(panels, title, { id: fileId });
+    }
+  }
+
+  // TEXT NOVEL READER (.txt)
+  async function openNovelTextReader(fileId, title) {
+    closeViewer();
     const res = await fetch(getDriveMediaUrl(fileId));
     const text = await res.text();
     const charsPerPage = 1800;
@@ -171,13 +300,16 @@
       pages.push(text.slice(i, i + charsPerPage));
     }
     let pageIdx = 0;
-
     const viewer = document.getElementById("viewer");
     viewer.style.display = "block";
+    viewer.scrollIntoView({ behavior: "smooth" });
 
     function renderPage() {
       viewer.innerHTML = `
-        <h2 style="margin-bottom: 12px;">${title.replace(/\.[^/.]+$/, "")}</h2>
+        <div class="viewer-header">
+          <h2>${title}</h2>
+          <button class="btn-secondary" onclick="closeViewer()">✕ Close</button>
+        </div>
         <div class="novel-page">${pages[pageIdx]}</div>
         <div class="controls">
           <button id="prevPage" ${pageIdx === 0 ? "disabled" : ""}>← Previous Page</button>
@@ -191,23 +323,21 @@
     renderPage();
   }
 
-  // 3. CONTINUOUS SONG QUEUE PLAYER
+  // CONTINUOUS SONG QUEUE PLAYER
   const audioEl = document.getElementById("audioEl");
   function playTrack(index) {
     if (!playlist.length) return;
     currentTrackIndex = index;
     const track = playlist[currentTrackIndex];
     document.getElementById("audioPlayerBar").style.display = "flex";
-    document.getElementById("nowPlayingTitle").textContent = track.name.replace(/\.[^/.]+$/, "");
+    document.getElementById("nowPlayingTitle").textContent = stripExt(track.name);
     document.getElementById("trackQueueInfo").textContent = `Track ${currentTrackIndex + 1} of ${playlist.length}`;
     audioEl.src = getDriveMediaUrl(track.id);
     audioEl.play();
   }
 
   audioEl.addEventListener("ended", () => {
-    if (currentTrackIndex + 1 < playlist.length) {
-      playTrack(currentTrackIndex + 1);
-    }
+    if (currentTrackIndex + 1 < playlist.length) playTrack(currentTrackIndex + 1);
   });
 
   init();
